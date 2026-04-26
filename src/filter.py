@@ -1,9 +1,14 @@
-"""過濾邏輯：假日場次 + 指定區域 + 主場場館。"""
+"""過濾邏輯：假日（週六日 + 國定假日）+ 指定區域 + 主場場館。"""
 import os
+from datetime import datetime, date
+import holidays
 
 DEFAULT_HOME_VENUES = ["洲際", "大巨蛋"]  # substring 比對，含「臺中洲際」「臺北大巨蛋」
 DEFAULT_WEEKDAYS = [5, 6]  # 週六、週日
 DEFAULT_ZONE_PREFIXES = ["C", "D", "E", "F"]
+
+# 台灣國定假日（含補假），library 會自動處理春節/補假等規則
+_TW_HOLIDAYS = holidays.Taiwan(years=range(date.today().year, date.today().year + 2))
 
 
 def _env_list(key, default):
@@ -13,14 +18,24 @@ def _env_list(key, default):
     return [x.strip() for x in v.split(",") if x.strip()]
 
 
+def _is_holiday(date_str):
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return False
+    return d in _TW_HOLIDAYS
+
+
 def is_target_game(game):
     venues = _env_list("VENUES", DEFAULT_HOME_VENUES)
     weekdays = [int(x) for x in _env_list("WEEKDAYS", [str(d) for d in DEFAULT_WEEKDAYS])]
-    if game.get("weekday_idx") not in weekdays:
-        return False
     if not any(v in game.get("venue", "") for v in venues):
         return False
-    return True
+    if game.get("weekday_idx") in weekdays:
+        return True
+    if _is_holiday(game.get("date", "")):
+        return True
+    return False
 
 
 def is_target_zone(zone_name):

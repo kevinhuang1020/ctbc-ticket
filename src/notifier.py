@@ -58,6 +58,8 @@ def notify_tickets(events):
     """events: list of dict {date, weekday, opponent, venue, zone, price, available, url}"""
     if not events:
         return False
+    # 按日期排序（同一場再按區域名）
+    events = sorted(events, key=lambda e: (e.get("date", ""), e.get("zone", "")))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"🎫 中信兄弟餘票通知  {now}", ""]
     by_game = {}
