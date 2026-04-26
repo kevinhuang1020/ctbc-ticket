@@ -43,11 +43,14 @@ def build_lines(target):
 
         header = f"\n📅 {g['date']}({g['weekday']}) {g['time']}  中信 vs {g['opponent']} @ {g['venue']}"
         summary = f"   熱賣 {n_hot} 區、有票 {n_remain} 區（具體合計 {total} 張）"
+        url_line = f"   🔗 {g.get('schedule_url', '')}"
 
         out_console.append(header)
         out_console.append(summary)
+        out_console.append(url_line)
         out_line.append(header)
         out_line.append(summary)
+        out_line.append(url_line)
 
         for z in zs:
             avail = fmt_avail(z["available"])
