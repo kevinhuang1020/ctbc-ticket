@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+state.json
+.playwright/
+debug_*.png
+debug_*.html
+debug_*.txt
+debug_*.json
+run*.log
+*.png
+src/debug_*.py
