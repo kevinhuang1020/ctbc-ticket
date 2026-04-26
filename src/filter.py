@@ -40,6 +40,9 @@ def is_target_game(game):
 
 def is_target_zone(zone_name):
     prefixes = _env_list("ZONE_PREFIXES", DEFAULT_ZONE_PREFIXES)
+    # 排除上層
+    if "上層" in zone_name:
+        return False
     # 區域名稱可能是「內野南C區下層」「外野F區」等 — 抓出英文字母再比對
     import re
     letters = re.findall(r"[A-Z]", zone_name.upper())
