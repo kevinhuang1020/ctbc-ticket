@@ -1,11 +1,31 @@
 """主程式：scrape → diff → filter → notify。"""
+import json
 import sys
 import traceback
+from datetime import datetime, timedelta
+from pathlib import Path
 
 from scraper import scrape_all
 from filter import is_target_game, is_target_zone
 from state import load_state, save_state, diff_new_availability
-from notifier import notify_tickets
+from notifier import notify_tickets, notify_empty
+
+EMPTY_NOTIFY_PATH = Path("empty_notify.json")
+EMPTY_NOTIFY_INTERVAL = timedelta(hours=8)
+
+
+def should_notify_empty():
+    if not EMPTY_NOTIFY_PATH.exists():
+        return True
+    try:
+        last = datetime.fromisoformat(json.loads(EMPTY_NOTIFY_PATH.read_text())["last_empty_at"])
+    except Exception:
+        return True
+    return datetime.now() - last >= EMPTY_NOTIFY_INTERVAL
+
+
+def mark_empty_notified():
+    EMPTY_NOTIFY_PATH.write_text(json.dumps({"last_empty_at": datetime.now().isoformat()}))
 
 
 def main():
@@ -32,7 +52,21 @@ def main():
     save_state(new_state)
 
     if not new_events:
-        print("[main] 無新釋出餘票，不通知")
+        # 檢查是不是「全部售完」狀態 — 若是且距上次通知 ≥ 8h，推一次心跳
+        any_available = any(
+            z.get("available", 0) != 0
+            for g in target_games
+            for z in g.get("zones", [])
+        )
+        if not any_available and total_zones > 0:
+            if should_notify_empty():
+                print(f"[main] 全部售完且超過 8h，推空狀態提醒")
+                notify_empty(len(target_games), total_zones)
+                mark_empty_notified()
+            else:
+                print("[main] 全部售完但 8h 內已通知過，跳過")
+        else:
+            print("[main] 無新釋出餘票，不通知")
         return
 
     payload = []

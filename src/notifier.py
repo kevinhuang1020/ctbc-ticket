@@ -79,6 +79,18 @@ def notify_tickets(events):
     return send_line_message("\n".join(lines))
 
 
+def notify_empty(target_games_count, target_zones_count):
+    """所有目標區域都售完時的提醒。"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    text = (
+        f"📭 目前所有監控區域都已售完  {now}\n\n"
+        f"🎯 持續監控中：{target_games_count} 場、{target_zones_count} 個 C/D/E/F 下層區\n"
+        f"⏰ 8 小時後若仍無票會再次提醒\n"
+        f"🔗 https://tix.ctbcsports.com/BROTHERS/UTK0102_?TYPE=4"
+    )
+    return send_line_message(text)
+
+
 if __name__ == "__main__":
     notify_tickets([{
         "date": "2026-05-03", "weekday": "日", "opponent": "樂天",

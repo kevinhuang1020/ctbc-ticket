@@ -5,6 +5,7 @@ __pycache__/
 venv/
 state.json
 report_state.json
+empty_notify.json
 .playwright/
 debug_*.png
 debug_*.html
