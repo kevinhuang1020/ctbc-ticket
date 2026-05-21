@@ -1,9 +1,8 @@
 name: ctbc-ticket-watcher
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'   # 每 10 分鐘（GitHub Actions cron 最低間隔）
-  workflow_dispatch:          # 手動觸發
+  # 主要由本機 LaunchAgent 每分鐘跑；GitHub Actions 留作手動備援
+  workflow_dispatch:
 
 permissions:
   contents: write             # 寫回 state.json 等狀態檔需要
