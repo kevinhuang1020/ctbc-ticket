@@ -1,25 +1,50 @@
-"""tix.ctbcsports.com scraper（Playwright，三層）：
+"""多站票務 scraper（Playwright，三層）。
 
-1. UTK0102_?TYPE=4         賽程列表 → PRODUCT_ID + STARTDATE
-2. UTK0201_?PRODUCT_ID=... 場次/票種頁 → PERFORMANCE_ID
-3. UTK0205_?PERFORMANCE_ID=... 區域票況頁 → 各區餘票
+支援站台：
+- brothers (tix.ctbcsports.com/BROTHERS)：賽程列表為 card（h1=標題、h2=時間）
+- guardians (guardians.fami.life)：賽程列表為簡單 anchor，僅含對手隊名 + STARTDATE
 
-站台用 Service Worker 緩存，wait_until='domcontentloaded' + 等選擇器較可靠。
+L2 / L3 結構兩站相同：
+- L2 UTK0201_?PRODUCT_ID=...&STARTDATE=...：tbody tr → onclick='UTK0204_?PERFORMANCE_ID=...'
+- L3 UTK0204_?PERFORMANCE_ID=...：tr.saleTr → td[data-title='票區/票價/空位']
 """
 import re
+import urllib.parse
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
-BASE = "https://tix.ctbcsports.com"
-SCHEDULE_URL = f"{BASE}/BROTHERS/UTK0102_?TYPE=4"
 WEEKDAY_TW = ["一", "二", "三", "四", "五", "六", "日"]
+HOT = "熱賣中"
+SOLD_OUT = "售完"
+
+# 主場館關鍵字（用於從 L2 row text 推斷 venue，並判斷是否主場）
+VENUE_KEYWORDS = ["洲際", "大巨蛋", "新莊"]
 
 
 # ─────────────────────────────────────────
-# Layer 1: 賽程列表
+# 站台設定
 # ─────────────────────────────────────────
-def parse_schedule_card(href, h1_text, h2_text):
-    """從卡片三個欄位解析出結構化資料。"""
+SITES = [
+    {
+        "key": "brothers",
+        "home_team": "中信兄弟",
+        "base": "https://tix.ctbcsports.com",
+        "schedule_url": "https://tix.ctbcsports.com/BROTHERS/UTK0102_?TYPE=4",
+    },
+    {
+        "key": "guardians",
+        "home_team": "富邦悍將",
+        "base": "https://guardians.fami.life",
+        "schedule_url": "https://guardians.fami.life/UTK0101_",
+    },
+]
+
+
+# ─────────────────────────────────────────
+# Layer 1：賽程列表
+# ─────────────────────────────────────────
+def _parse_brothers_card(href, h1_text, h2_text, site):
+    """中信：card 含 h1（標題：「...例行賽XXvs中信兄弟@洲際棒球場(家庭席)」）+ h2（時間）。"""
     m = re.search(r"PRODUCT_ID=([A-Za-z0-9]+)", href)
     product_id = m.group(1) if m else None
 
@@ -28,32 +53,30 @@ def parse_schedule_card(href, h1_text, h2_text):
         y, mo, d = (int(x) for x in m.groups())
         dt = datetime(y, mo, d)
     else:
-        # fallback：從 h2「2026/04/29 18:35」抓
         m = re.search(r"(\d{4})/(\d{1,2})/(\d{1,2})", h2_text)
         if not m:
             return None
         y, mo, d = (int(x) for x in m.groups())
         dt = datetime(y, mo, d)
 
-    # 標題格式：「中華職棒37年例行賽樂天桃猿vs中信兄弟@洲際棒球場(家庭席)」
     title = h1_text.strip()
     opponent = ""
     venue = ""
     variant = ""
-
-    m = re.search(r"例行賽(.+?)vs中信兄弟", title)
+    m = re.search(rf"例行賽(.+?)vs{site['home_team']}", title)
     if m:
         opponent = m.group(1).strip()
-
     m = re.search(r"@([^()（）]+)", title)
     if m:
         venue = m.group(1).strip()
-
     m = re.search(r"[（(]([^)）]+)[）)]", title)
     if m:
         variant = m.group(1).strip()
 
+    schedule_url = href if href.startswith("http") else site["base"] + "/BROTHERS/" + href.lstrip("/")
     return {
+        "source": site["key"],
+        "home_team": site["home_team"],
         "product_id": product_id,
         "date": dt.strftime("%Y-%m-%d"),
         "weekday_idx": dt.weekday(),
@@ -63,32 +86,29 @@ def parse_schedule_card(href, h1_text, h2_text):
         "venue": venue,
         "variant": variant,
         "title": title,
-        "schedule_url": href if href.startswith("http") else BASE + "/BROTHERS/" + href.lstrip("/"),
+        "schedule_url": schedule_url,
     }
 
 
-def fetch_schedule(page):
-    page.goto(SCHEDULE_URL, wait_until="domcontentloaded", timeout=60000)
+def fetch_schedule_brothers(page, site):
+    page.goto(site["schedule_url"], wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_selector("a[href*='UTK0201_'][href*='PRODUCT_ID=']", timeout=20000)
     except Exception:
-        print("[scraper] 警告：20 秒內沒等到賽程卡片，繼續嘗試解析")
+        print(f"[scraper:{site['key']}] 警告：20 秒內沒等到賽程卡片")
     page.wait_for_timeout(1500)
 
     games = []
     seen = set()
-    cards = page.query_selector_all("a[href*='UTK0201_'][href*='PRODUCT_ID=']")
-    for card in cards:
+    for card in page.query_selector_all("a[href*='UTK0201_'][href*='PRODUCT_ID=']"):
         href = card.get_attribute("href") or ""
         h1 = card.query_selector("h1")
         h2 = card.query_selector("h2")
         h1_text = h1.inner_text() if h1 else ""
         h2_text = h2.inner_text() if h2 else ""
-
-        info = parse_schedule_card(href, h1_text, h2_text)
+        info = _parse_brothers_card(href, h1_text, h2_text, site)
         if not info or not info["product_id"]:
             continue
-        # 用 (product_id, date) 去重 — 同一場有「一般」「家庭席」會出現兩張卡片
         key = (info["product_id"], info["date"])
         if key in seen:
             continue
@@ -97,24 +117,87 @@ def fetch_schedule(page):
     return games
 
 
+def fetch_schedule_guardians(page, site):
+    """富邦：anchor text = 對手隊名，href 含 PRODUCT_ID + STARTDATE，venue 須由 L2 補。"""
+    page.goto(site["schedule_url"], wait_until="domcontentloaded", timeout=60000)
+    try:
+        page.wait_for_selector("a[href*='UTK0201_'][href*='PRODUCT_ID=']", timeout=20000)
+    except Exception:
+        print(f"[scraper:{site['key']}] 警告：20 秒內沒等到賽程卡片")
+    page.wait_for_timeout(1500)
+
+    games = []
+    seen = set()
+    for card in page.query_selector_all("a[href*='UTK0201_'][href*='PRODUCT_ID=']"):
+        href = card.get_attribute("href") or ""
+        m = re.search(r"STARTDATE=(\d{4})/(\d{1,2})/(\d{1,2})", href)
+        if not m:
+            continue
+        y, mo, d = (int(x) for x in m.groups())
+        dt = datetime(y, mo, d)
+        date_str = dt.strftime("%Y-%m-%d")
+        opp = (card.inner_text() or "").strip()
+        if not opp:
+            continue
+        m2 = re.search(r"PRODUCT_ID=([A-Za-z0-9]+)", href)
+        product_id = m2.group(1) if m2 else None
+        key = (date_str, opp)
+        if key in seen:
+            continue
+        seen.add(key)
+        schedule_url = href if href.startswith("http") else site["base"] + "/" + href.lstrip("/")
+        games.append({
+            "source": site["key"],
+            "home_team": site["home_team"],
+            "product_id": product_id,
+            "date": date_str,
+            "weekday_idx": dt.weekday(),
+            "weekday": WEEKDAY_TW[dt.weekday()],
+            "time": "",
+            "opponent": opp,
+            "venue": "",      # 由 L2 row text 補
+            "variant": "",
+            "title": f"{opp}vs{site['home_team']}",
+            "schedule_url": schedule_url,
+        })
+    return games
+
+
+SCHEDULE_FETCHERS = {
+    "brothers": fetch_schedule_brothers,
+    "guardians": fetch_schedule_guardians,
+}
+
+
 # ─────────────────────────────────────────
-# Layer 2: 場次 → PERFORMANCE_ID
-# 結構：<button onclick="location.href='UTK0204_?PERFORMANCE_ID=...'">購買</button>
-#       已售完則 onclick 指向 UTK0202_
+# Layer 2：場次 → PERFORMANCE_ID
 # ─────────────────────────────────────────
+def _infer_venue(text):
+    for kw in VENUE_KEYWORDS:
+        if kw in text:
+            # 把出現上下文盡量回傳完整館名
+            if kw == "洲際":
+                return "臺中洲際棒球場"
+            if kw == "大巨蛋":
+                return "臺北大巨蛋"
+            if kw == "新莊":
+                return "新莊棒球場"
+    return ""
+
+
 def fetch_performances(page, schedule_url):
     page.goto(schedule_url, wait_until="domcontentloaded", timeout=60000)
     try:
         page.wait_for_selector("[onclick*='PERFORMANCE_ID']", timeout=15000)
     except Exception:
-        return []
+        return [], ""
     page.wait_for_timeout(1000)
 
-    # 同時抓「購買」「已售完」按鈕，以及該按鈕所在的 row（拿票種名稱）
     performances = []
     seen = set()
-    rows = page.query_selector_all("tbody tr")
-    for tr in rows:
+    first_venue = ""
+
+    for tr in page.query_selector_all("tbody tr"):
         btn = tr.query_selector("[onclick*='PERFORMANCE_ID']")
         if not btn:
             continue
@@ -129,16 +212,16 @@ def fetch_performances(page, schedule_url):
 
         btn_text = (btn.text_content() or "").strip()
         is_available = btn_text == "購買" or "購買" in btn_text
-        # row 文字含名稱、票價
         row_text = (tr.text_content() or "").strip()
-        # 票種名稱：通常包含「家庭席」「一般」等關鍵字
-        is_family = "家庭席" in row_text
-        # 票價：抓所有出現的價格
+        is_family = "家庭席" in row_text or "派對席" in row_text or "PARTY ZONE" in row_text
         prices = [int(x) for x in re.findall(r"\b\d{3,5}\b", row_text)]
+        row_venue = _infer_venue(row_text)
+        if row_venue and not first_venue:
+            first_venue = row_venue
 
         next_url = re.search(r"'(UTK020[24]_[^']+)'", oc)
         url_path = next_url.group(1) if next_url else ""
-        full = BASE + "/BROTHERS/" + url_path if url_path else ""
+        full = urllib.parse.urljoin(schedule_url, url_path) if url_path else ""
 
         performances.append({
             "performance_id": pid,
@@ -146,27 +229,16 @@ def fetch_performances(page, schedule_url):
             "is_family": is_family,
             "prices": prices,
             "row_text": row_text[:200],
+            "venue": row_venue,
             "url": full,
         })
-    return performances
+    return performances, first_venue
 
 
 # ─────────────────────────────────────────
-# Layer 3: UTK0204_ 區域選擇頁
-# 結構：<tr class="saleTr"><td>區域名</td><td>票價</td><td>空位</td></tr>
-# 空位三種狀態：「熱賣中」(有票)、純數字 (剩餘張數)、「售完」
+# Layer 3：UTK0204_ 區域票況
 # ─────────────────────────────────────────
-HOT = "熱賣中"
-SOLD_OUT = "售完"
-
-
 def parse_availability(text):
-    """回傳 (available_int, raw_text)。
-    available 規則：
-      售完  → 0
-      熱賣中 → -1（有票但不知道數量）
-      數字   → 該數字
-    """
     t = text.strip()
     if SOLD_OUT in t or "完售" in t:
         return 0, t
@@ -175,7 +247,7 @@ def parse_availability(text):
     m = re.search(r"\d+", t)
     if m:
         return int(m.group()), t
-    return -1, t  # 解析不出來，當作有票（保守通知）
+    return -1, t
 
 
 def fetch_zones(page, performance_url):
@@ -184,8 +256,6 @@ def fetch_zones(page, performance_url):
         page.wait_for_selector("tr.saleTr", timeout=15000)
     except Exception:
         return []
-
-    # 等 saleTr 的 td[data-title='票區'] 真的填入內容
     try:
         page.wait_for_function(
             """() => {
@@ -199,20 +269,16 @@ def fetch_zones(page, performance_url):
     except Exception:
         return []
 
-    zones = []
-    # 用 data-title 屬性精準對應，避開 td[0] 是顏色塊的問題
     rows = page.evaluate("""() => {
         return Array.from(document.querySelectorAll('tr.saleTr')).map(tr => {
             const tds = Array.from(tr.querySelectorAll('td'));
             const find = (k) => tds.find(td => (td.getAttribute('data-title') || '').includes(k));
-            const get = (k) => {
-                const el = find(k);
-                return el ? (el.textContent || '').trim() : '';
-            };
+            const get = (k) => { const el = find(k); return el ? (el.textContent || '').trim() : ''; };
             return { name: get('票區'), price: get('票價'), avail: get('空位') };
         });
     }""")
 
+    zones = []
     for row in rows:
         name = row["name"]
         try:
@@ -233,62 +299,67 @@ def fetch_zones(page, performance_url):
 # 主入口
 # ─────────────────────────────────────────
 def scrape_all(headless=True, depth="full", filter_fn=None):
-    """
-    depth:
-      - "schedule": 只抓賽程列表（debug 用）
-      - "performances": schedule + 每場的 PERFORMANCE_ID
-      - "full": 三層全跑（含區域票況）
-    filter_fn(game) -> bool: 在進第二層前篩掉不感興趣的場次（省時）
-    """
+    """跑所有站台的 L1/L2/L3，回傳合併後的 games list。"""
+    all_games = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         ctx = browser.new_context(locale="zh-TW")
         page = ctx.new_page()
         try:
-            games = fetch_schedule(page)
-            print(f"[scraper] L1 抓到 {len(games)} 場")
-
-            if depth == "schedule":
-                return games
-
-            for g in games:
-                if filter_fn and not filter_fn(g):
-                    g["performances"] = []
-                    g["zones"] = []
-                    continue
+            for site in SITES:
+                fetcher = SCHEDULE_FETCHERS[site["key"]]
                 try:
-                    perfs = fetch_performances(page, g["schedule_url"])
-                    g["performances"] = perfs
-                    print(f"[scraper] L2 {g['date']} {g['opponent']}@{g['venue']} → {len(perfs)} 個 performance")
+                    games = fetcher(page, site)
+                    print(f"[scraper:{site['key']}] L1 抓到 {len(games)} 場")
                 except Exception as e:
-                    print(f"[scraper] L2 失敗 {g['product_id']}: {e}")
-                    g["performances"] = []
+                    print(f"[scraper:{site['key']}] L1 失敗: {e}")
+                    games = []
 
-                if depth != "full":
+                if depth == "schedule":
+                    all_games.extend(games)
                     continue
 
-                all_zones = []
-                for perf in g["performances"]:
-                    # 跳過：家庭席、整票種已售完
-                    if perf.get("is_family"):
-                        continue
-                    if not perf.get("available"):
-                        continue
-                    if not perf.get("url"):
+                for g in games:
+                    if filter_fn and not filter_fn(g):
+                        g["performances"] = []
+                        g["zones"] = []
                         continue
                     try:
-                        zs = fetch_zones(page, perf["url"])
-                        for z in zs:
-                            z["performance_id"] = perf["performance_id"]
-                        all_zones.extend(zs)
+                        perfs, body_venue = fetch_performances(page, g["schedule_url"])
+                        g["performances"] = perfs
+                        if not g.get("venue") and body_venue:
+                            g["venue"] = body_venue
+                        print(f"[scraper:{site['key']}] L2 {g['date']} {g['opponent']}@{g['venue']} → {len(perfs)} 個 performance")
                     except Exception as e:
-                        print(f"[scraper] L3 失敗 {perf['performance_id']}: {e}")
-                g["zones"] = all_zones
-                print(f"[scraper] L3 {g['date']} → {len(all_zones)} 區")
+                        print(f"[scraper:{site['key']}] L2 失敗 {g.get('product_id')}: {e}")
+                        g["performances"] = []
+
+                    if depth != "full":
+                        continue
+
+                    all_zones = []
+                    for perf in g["performances"]:
+                        if perf.get("is_family"):
+                            continue
+                        if not perf.get("available"):
+                            continue
+                        if not perf.get("url"):
+                            continue
+                        try:
+                            zs = fetch_zones(page, perf["url"])
+                            for z in zs:
+                                z["performance_id"] = perf["performance_id"]
+                            all_zones.extend(zs)
+                        except Exception as e:
+                            print(f"[scraper:{site['key']}] L3 失敗 {perf['performance_id']}: {e}")
+                    g["zones"] = all_zones
+                    print(f"[scraper:{site['key']}] L3 {g['date']} → {len(all_zones)} 區")
+
+                all_games.extend(games)
         finally:
             ctx.close()
             browser.close()
-        return games
+    return all_games
 
 
 if __name__ == "__main__":

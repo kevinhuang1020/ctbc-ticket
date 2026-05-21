@@ -2,30 +2,36 @@
 import json
 import sys
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from scraper import scrape_all
 from filter import is_target_game, is_target_zone
 from state import load_state, save_state, diff_new_availability
-from notifier import notify_tickets, notify_empty
+from notifier import notify_tickets, notify_season_paused, notify_season_resumed
 
-EMPTY_NOTIFY_PATH = Path("empty_notify.json")
-EMPTY_NOTIFY_INTERVAL = timedelta(hours=8)
+NOTIFY_STATE_PATH = Path("notify_state.json")
+SEASON_STATE_PATH = Path("season_state.json")
 
 
-def should_notify_empty():
-    if not EMPTY_NOTIFY_PATH.exists():
-        return True
+def _load_season_paused():
+    if not SEASON_STATE_PATH.exists():
+        return False
     try:
-        last = datetime.fromisoformat(json.loads(EMPTY_NOTIFY_PATH.read_text())["last_empty_at"])
+        return bool(json.loads(SEASON_STATE_PATH.read_text()).get("paused", False))
     except Exception:
-        return True
-    return datetime.now() - last >= EMPTY_NOTIFY_INTERVAL
+        return False
 
 
-def mark_empty_notified():
-    EMPTY_NOTIFY_PATH.write_text(json.dumps({"last_empty_at": datetime.now().isoformat()}))
+def _save_season_paused(paused):
+    SEASON_STATE_PATH.write_text(json.dumps({
+        "paused": paused,
+        "updated_at": datetime.now().isoformat(),
+    }))
+
+
+def mark_notified():
+    NOTIFY_STATE_PATH.write_text(json.dumps({"last_notify_at": datetime.now().isoformat()}))
 
 
 def main():
@@ -36,12 +42,29 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # 過濾：目標場次（假日 + 主場）+ 目標區域（C/D/E/F）
+    # 賽季開關：抓不到任何場次 → 暫停（只通知一次），抓到 → 恢復（只通知一次）
+    paused = _load_season_paused()
+    if not games:
+        if not paused:
+            print("[main] 找不到任何場次，推暫停通知並進入 paused 狀態")
+            notify_season_paused()
+            _save_season_paused(True)
+            mark_notified()
+        else:
+            print("[main] 仍無場次，paused 狀態，靜默跳過")
+        return
+    if paused:
+        print(f"[main] 重新抓到 {len(games)} 場，推恢復通知並解除 paused")
+        notify_season_resumed(len(games))
+        _save_season_paused(False)
+        mark_notified()
+
+    # 過濾：目標場次（假日 + 主場）+ 目標區域（依站台規則）
     target_games = []
     for g in games:
         if not is_target_game(g):
             continue
-        g["zones"] = [z for z in g.get("zones", []) if is_target_zone(z["name"])]
+        g["zones"] = [z for z in g.get("zones", []) if is_target_zone(z["name"], source=g.get("source"))]
         target_games.append(g)
 
     total_zones = sum(len(g["zones"]) for g in target_games)
@@ -52,37 +75,13 @@ def main():
     save_state(new_state)
 
     if not new_events:
-        # 檢查是不是「全部售完」狀態 — 若是且距上次通知 ≥ 8h，推一次心跳
-        any_available = any(
-            z.get("available", 0) != 0
-            for g in target_games
-            for z in g.get("zones", [])
-        )
-        if not any_available and total_zones > 0:
-            if should_notify_empty():
-                print(f"[main] 全部售完且超過 8h，推空狀態提醒")
-                notify_empty(len(target_games), total_zones)
-                mark_empty_notified()
-            else:
-                print("[main] 全部售完但 8h 內已通知過，跳過")
-        else:
-            print("[main] 無新釋出餘票，不通知")
+        print("[main] 無新釋出餘票，靜默跳過")
         return
 
-    payload = []
-    for g, z in new_events:
-        payload.append({
-            "date": g["date"],
-            "weekday": g["weekday"],
-            "opponent": g["opponent"] or "?",
-            "venue": g["venue"] or "?",
-            "zone": z["name"],
-            "price": z.get("price"),
-            "available": z.get("available", -1),
-            "game_url": g["schedule_url"],
-        })
-    print(f"[main] 推播 {len(payload)} 筆新餘票")
-    notify_tickets(payload)
+    new_keys = {(g.get("source"), g["date"], z["name"]) for g, z in new_events}
+    print(f"[main] 推播：新釋出 {len(new_keys)} 區，列出所有可購")
+    notify_tickets(target_games, new_keys)
+    mark_notified()
 
 
 if __name__ == "__main__":

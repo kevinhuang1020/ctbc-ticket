@@ -34,7 +34,9 @@ def save_state(state):
 
 
 def diff_new_availability(games, prev_state):
-    new_state = {}
+    # 沿用上一次的 state — L3 抓失敗時，沒看到的 key 維持舊值，
+    # 避免下一次抓回來被誤判為「新區域 → 推假通知」。
+    new_state = dict(prev_state)
     new_events = []
     is_first_run = not prev_state
 
@@ -42,9 +44,9 @@ def diff_new_availability(games, prev_state):
         for z in g.get("zones", []):
             key = f"{z['performance_id']}:{z['name']}"
             curr = z["available"]
-            new_state[key] = curr
 
             if is_first_run:
+                new_state[key] = curr
                 continue
 
             prev = prev_state.get(key)
@@ -55,5 +57,7 @@ def diff_new_availability(games, prev_state):
             elif prev == 0 and curr != 0:
                 # 售完 → 有票（退票釋出）
                 new_events.append((g, z))
+
+            new_state[key] = curr
 
     return new_events, new_state

@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
-state.json
 report_state.json
 empty_notify.json
 .playwright/
@@ -14,3 +13,4 @@ debug_*.json
 run*.log
 *.png
 src/debug_*.py
+logs/
