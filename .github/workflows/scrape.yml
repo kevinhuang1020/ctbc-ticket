@@ -1,7 +1,8 @@
 name: ctbc-ticket-watcher
 
 on:
-  # 主要由本機 LaunchAgent 每分鐘跑；GitHub Actions 留作手動備援
+  schedule:
+    - cron: '*/15 * * * *'   # 每 15 分鐘（含 6h heartbeat 判斷）
   workflow_dispatch:
 
 permissions:

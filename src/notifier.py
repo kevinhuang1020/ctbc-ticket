@@ -130,7 +130,7 @@ def notify_tickets(target_games, new_keys):
             mark = "🆕👉 " if is_new else "   • "
             tail = "  ⬅️ 新" if is_new else ""
             lines.append(f"   {mark}{z['name']}{price}{avail_s}{tail}")
-        lines.append(f"   🔗 {g.get('schedule_url','')}")
+        lines.append(f"   🔗 {g.get('buy_url') or g.get('schedule_url','')}")
         lines.append("")
     if not any_avail:
         lines.append("（目前所有目標區域皆售完）")
@@ -188,12 +188,11 @@ def notify_heartbeat(target_games):
             avail = _fmt_avail(z.get("available", -1))
             avail_s = f"  [{avail}]" if avail else ""
             lines.append(f"   • {z['name']}{price}{avail_s}")
-        lines.append(f"   🔗 {g.get('schedule_url','')}")
+        lines.append(f"   🔗 {g.get('buy_url') or g.get('schedule_url','')}")
         lines.append("")
     if not any_avail:
         lines.append("（目前所有目標區域皆售完）")
         lines.append("")
-    lines.append("⏰ 8 小時後若仍無新釋出會再次提醒")
     lines.append("⚠️ 請手動前往購票，本程式不會自動下單")
     return send_line_message("\n".join(lines))
 

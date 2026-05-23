@@ -2,16 +2,17 @@
 import json
 import sys
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from scraper import scrape_all
 from filter import is_target_game, is_target_zone
 from state import load_state, save_state, diff_new_availability
-from notifier import notify_tickets, notify_season_paused, notify_season_resumed
+from notifier import notify_tickets, notify_season_paused, notify_season_resumed, notify_heartbeat
 
 NOTIFY_STATE_PATH = Path("notify_state.json")
 SEASON_STATE_PATH = Path("season_state.json")
+HEARTBEAT_INTERVAL = timedelta(hours=6)
 
 
 def _load_season_paused():
@@ -32,6 +33,16 @@ def _save_season_paused(paused):
 
 def mark_notified():
     NOTIFY_STATE_PATH.write_text(json.dumps({"last_notify_at": datetime.now().isoformat()}))
+
+
+def _last_notify_at():
+    if not NOTIFY_STATE_PATH.exists():
+        return None
+    try:
+        ts = json.loads(NOTIFY_STATE_PATH.read_text()).get("last_notify_at")
+        return datetime.fromisoformat(ts) if ts else None
+    except Exception:
+        return None
 
 
 def main():
@@ -75,7 +86,13 @@ def main():
     save_state(new_state)
 
     if not new_events:
-        print("[main] 無新釋出餘票，靜默跳過")
+        last = _last_notify_at()
+        if last is None or datetime.now() - last >= HEARTBEAT_INTERVAL:
+            print(f"[main] 無新釋出，但距上次推播 ≥ {HEARTBEAT_INTERVAL}，推 heartbeat")
+            notify_heartbeat(target_games)
+            mark_notified()
+        else:
+            print("[main] 無新釋出餘票，靜默跳過")
         return
 
     new_keys = {(g.get("source"), g["date"], z["name"]) for g, z in new_events}

@@ -185,13 +185,25 @@ def _infer_venue(text):
     return ""
 
 
-def fetch_performances(page, schedule_url):
-    page.goto(schedule_url, wait_until="domcontentloaded", timeout=60000)
-    try:
-        page.wait_for_selector("[onclick*='PERFORMANCE_ID']", timeout=15000)
-    except Exception:
-        return [], ""
-    page.wait_for_timeout(1000)
+def fetch_performances(page, schedule_url, retries=2):
+    for attempt in range(retries + 1):
+        page.goto(schedule_url, wait_until="domcontentloaded", timeout=60000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        try:
+            page.wait_for_selector("[onclick*='PERFORMANCE_ID']", state="attached", timeout=20000)
+        except Exception:
+            if attempt < retries:
+                page.wait_for_timeout(2000)
+                continue
+            return [], ""
+        page.wait_for_timeout(1500)
+        if page.query_selector_all("[onclick*='PERFORMANCE_ID']"):
+            break
+        if attempt < retries:
+            page.wait_for_timeout(2000)
 
     performances = []
     seen = set()
@@ -345,10 +357,14 @@ def scrape_all(headless=True, depth="full", filter_fn=None):
                             continue
                         if not perf.get("url"):
                             continue
+                        # 設第一個非家庭、有票的 perf URL 為「直接選位」連結
+                        if not g.get("buy_url"):
+                            g["buy_url"] = perf["url"]
                         try:
                             zs = fetch_zones(page, perf["url"])
                             for z in zs:
                                 z["performance_id"] = perf["performance_id"]
+                                z["buy_url"] = perf["url"]
                             all_zones.extend(zs)
                         except Exception as e:
                             print(f"[scraper:{site['key']}] L3 失敗 {perf['performance_id']}: {e}")
