@@ -74,11 +74,15 @@ def _fmt_avail(n):
     return ""
 
 
-def _game_header(g):
+def _game_line(g):
     home = g.get("home_team") or "?"
     opp = g.get("opponent") or "?"
     venue = g.get("venue") or "?"
-    return f"📅 {g['date']}({g.get('weekday','')}) {home} vs {opp} @ {venue}"
+    return f"{g['date']}({g.get('weekday','')}) {home} vs {opp} @ {venue}"
+
+
+def _game_header(g):
+    return f"📅 {_game_line(g)}"
 
 
 def notify_tickets(target_games, new_keys):
@@ -103,11 +107,7 @@ def notify_tickets(target_games, new_keys):
         price = f"  ${z['price']}" if z.get("price") else ""
         avail = _fmt_avail(z.get("available", -1))
         avail_s = f"  [{avail}]" if avail else ""
-        home = g.get("home_team") or "?"
-        opp = g.get("opponent") or "?"
-        venue = g.get("venue") or "?"
-        weekday = g.get("weekday", "")
-        lines.append(f"  ▶ {date}({weekday}) {home} vs {opp} @ {venue}")
+        lines.append(f"  ▶ {_game_line(g)}")
         lines.append(f"     👉 {zone_name}{price}{avail_s}")
     lines.append("━━━━━━━━━━━━━━━━━━")
     lines.append("")
@@ -159,18 +159,6 @@ def notify_season_resumed(games_count):
     return send_line_message(text)
 
 
-def notify_empty(target_games_count, target_zones_count):
-    """所有目標區域都售完時的提醒。"""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    text = (
-        f"📭 目前所有監控區域都已售完  {now}\n\n"
-        f"🎯 持續監控中：{target_games_count} 場、{target_zones_count} 個 C/D/E/F 下層區\n"
-        f"⏰ 8 小時後若仍無票會再次提醒\n"
-        f"🔗 https://tix.ctbcsports.com/BROTHERS/UTK0102_?TYPE=4"
-    )
-    return send_line_message(text)
-
-
 def notify_heartbeat(target_games):
     """無新釋出餘票，但距上次通知已 ≥ 8h，推一次心跳列出目前每場每區可購數量。"""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -198,8 +186,4 @@ def notify_heartbeat(target_games):
 
 
 if __name__ == "__main__":
-    notify_tickets([{
-        "date": "2026-05-03", "weekday": "日", "opponent": "樂天",
-        "venue": "洲際棒球場", "zone": "內野南C區下層", "price": 500,
-        "game_url": "https://tix.ctbcsports.com/BROTHERS/UTK0205_?PERFORMANCE_ID=TEST",
-    }])
+    send_line_message("✅ notifier 連線測試")
