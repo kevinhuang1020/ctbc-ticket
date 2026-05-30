@@ -117,17 +117,11 @@ def fetch_schedule_brothers(page, site):
     return games
 
 
-def fetch_schedule_guardians(page, site):
-    """富邦：anchor text = 對手隊名，href 含 PRODUCT_ID + STARTDATE，venue 須由 L2 補。"""
-    page.goto(site["schedule_url"], wait_until="domcontentloaded", timeout=60000)
-    try:
-        page.wait_for_selector("a[href*='UTK0201_'][href*='PRODUCT_ID=']", timeout=20000)
-    except Exception:
-        print(f"[scraper:{site['key']}] 警告：20 秒內沒等到賽程卡片")
-    page.wait_for_timeout(1500)
+GUARDIANS_MONTHS_AHEAD = 3  # 含當月外，往後再切 N 個月（富邦月曆 UI 預設只顯示當月）
 
-    games = []
-    seen = set()
+
+def _collect_guardians_cards(page, games, seen, site):
+    """從目前月曆顯示的月份抓 anchor，appends to games（in-place）。"""
     for card in page.query_selector_all("a[href*='UTK0201_'][href*='PRODUCT_ID=']"):
         href = card.get_attribute("href") or ""
         m = re.search(r"STARTDATE=(\d{4})/(\d{1,2})/(\d{1,2})", href)
@@ -160,6 +154,30 @@ def fetch_schedule_guardians(page, site):
             "title": f"{opp}vs{site['home_team']}",
             "schedule_url": schedule_url,
         })
+
+
+def fetch_schedule_guardians(page, site):
+    """富邦：月曆 UI 預設只顯示當月，需呼叫 SetCalendar(1) 切下個月補抓未來場次。"""
+    page.goto(site["schedule_url"], wait_until="domcontentloaded", timeout=60000)
+    try:
+        page.wait_for_selector("a[href*='UTK0201_'][href*='PRODUCT_ID=']", timeout=20000)
+    except Exception:
+        print(f"[scraper:{site['key']}] 警告：20 秒內沒等到賽程卡片")
+    page.wait_for_timeout(1500)
+
+    games = []
+    seen = set()
+    _collect_guardians_cards(page, games, seen, site)
+
+    for _ in range(GUARDIANS_MONTHS_AHEAD):
+        try:
+            page.evaluate("SetCalendar(1)")
+        except Exception as e:
+            print(f"[scraper:{site['key']}] SetCalendar(1) 失敗: {e}")
+            break
+        page.wait_for_timeout(2000)
+        _collect_guardians_cards(page, games, seen, site)
+
     return games
 
 
