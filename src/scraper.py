@@ -369,7 +369,7 @@ def scrape_all(headless=True, depth="full", filter_fn=None):
                         except Exception as e:
                             print(f"[scraper:{site['key']}] L3 失敗 {perf['performance_id']}: {e}")
                     g["zones"] = all_zones
-                    print(f"[scraper:{site['key']}] L3 {g['date']} → {len(all_zones)} 區")
+                    print(f"[scraper:{site['key']}] L3 {g['date']} → {len(all_zones)} 個 zone")
 
                 all_games.extend(games)
         finally:

@@ -7,7 +7,7 @@ DEFAULT_HOME_VENUES = ["洲際", "大巨蛋", "新莊"]  # substring 比對
 DEFAULT_WEEKDAYS = [5, 6]  # 週六、週日
 DEFAULT_ZONE_PREFIXES = ["C", "D", "E", "F"]  # 中信（洲際）目標英文字母區
 # 大巨蛋以數字命名（108 區、109 區 ...），單獨用 substring 比對
-DEFAULT_DOME_ZONE_NUMBERS = ["108", "109", "110", "116", "117", "118"]
+DEFAULT_DOME_ZONE_NUMBERS = ["108", "109", "110", "111", "112", "113", "114", "115", "116", "117", "118"]
 # 富邦（新莊）目標：A1~A7 / B1~B7（含「熱力區」變體）
 DEFAULT_GUARDIANS_ZONE_PATTERN = r"^[AB][1-7](區|熱力區)$"
 
