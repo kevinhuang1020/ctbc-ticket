@@ -8,8 +8,8 @@ DEFAULT_WEEKDAYS = [5, 6]  # 週六、週日
 DEFAULT_ZONE_PREFIXES = ["C", "D", "E", "F"]  # 中信（洲際）目標英文字母區
 # 大巨蛋以數字命名（108 區、109 區 ...），單獨用 substring 比對
 DEFAULT_DOME_ZONE_NUMBERS = ["108", "109", "110", "111", "112", "113", "114", "115", "116", "117", "118"]
-# 富邦（新莊）目標：A1~A7 / B1~B7（含「熱力區」變體）
-DEFAULT_GUARDIANS_ZONE_PATTERN = r"^[AB][1-7](區|熱力區)$"
+# 富邦（新莊）目標：A/B/C/D 區內野字母區（等同中信 C/D/E/F 下層邏輯），含「熱力區」變體
+DEFAULT_GUARDIANS_ZONE_PATTERN = r"^[ABCD]\d+(區|熱力區)$"
 
 # 台灣國定假日（含補假），library 會自動處理春節/補假等規則
 _TW_HOLIDAYS = holidays.Taiwan(years=range(date.today().year, date.today().year + 2))
