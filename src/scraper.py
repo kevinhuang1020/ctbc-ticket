@@ -203,18 +203,21 @@ def _infer_venue(text):
     return ""
 
 
-def fetch_performances(page, schedule_url, retries=2):
+def fetch_performances(page, schedule_url, retries=1):
     for attempt in range(retries + 1):
-        page.goto(schedule_url, wait_until="domcontentloaded", timeout=60000)
+        page.goto(schedule_url, wait_until="domcontentloaded", timeout=30000)
         try:
-            page.wait_for_load_state("networkidle", timeout=8000)
+            page.wait_for_load_state("networkidle", timeout=3000)
         except Exception:
             pass
+        # 已開賣場次：PERFORMANCE_ID button 通常瞬間就在 DOM
+        # 未開賣場次（7 月之後新上架但票還沒開賣）：不會有 button
+        # 用短 timeout 快速判定，避免 CI 累積大量未開賣場次拖到 10 分鐘 timeout
         try:
-            page.wait_for_selector("[onclick*='PERFORMANCE_ID']", state="attached", timeout=20000)
+            page.wait_for_selector("[onclick*='PERFORMANCE_ID']", state="attached", timeout=5000)
         except Exception:
             if attempt < retries:
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(1000)
                 continue
             return [], ""
         page.wait_for_timeout(1500)
